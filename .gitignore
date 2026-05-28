@@ -1,0 +1,8 @@
+.gradle/
+build/
+gradle-temp/
+local.properties
+*.iml
+.idea/
+# Gradle wrapper distribution zips and temporary caches
+gradle-*.zip
