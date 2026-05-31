@@ -511,7 +511,7 @@ void loop()
   static unsigned long lastBleUpdate = 0;
   if (millis() - lastBleUpdate > 1000) {
     lastBleUpdate = millis();
-    if (pRx != nullptr && pRx->getSubscribedCount() > 0) {
+    if (pRx != nullptr) {
       // Send GPS status
       pRx->setValue(gpsValid ? "GPS:1" : "GPS:0");
       pRx->notify();
