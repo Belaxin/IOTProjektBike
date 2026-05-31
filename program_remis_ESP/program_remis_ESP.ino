@@ -452,7 +452,8 @@ void setup()
       CHAR_RX_UUID,
       NIMBLE_PROPERTY::READ |
           NIMBLE_PROPERTY::WRITE |
-          NIMBLE_PROPERTY::WRITE_NR);
+          NIMBLE_PROPERTY::WRITE_NR |
+          NIMBLE_PROPERTY::NOTIFY);
 
   pRx->setValue("READY");
   service->start();
@@ -505,6 +506,27 @@ void loop()
   // Update display
   unsigned long elapsed = tracking ? (millis() - startTime) / 1000 : 0;
   drawUI(speedFiltered, distanceMeters, elapsed);
+
+  // TELEMETRY PUSH TO PHONE
+  static unsigned long lastBleUpdate = 0;
+  if (millis() - lastBleUpdate > 1000) {
+    lastBleUpdate = millis();
+    if (pRx != nullptr && pRx->getSubscribedCount() > 0) {
+      // Send GPS status
+      pRx->setValue(gpsValid ? "GPS:1" : "GPS:0");
+      pRx->notify();
+
+      // Send Speed
+      String spdMsg = "SPD:" + String(speedFiltered, 1);
+      pRx->setValue(spdMsg.c_str());
+      pRx->notify();
+
+      // Send Distance
+      String distMsg = "DIST:" + String((int)distanceMeters);
+      pRx->setValue(distMsg.c_str());
+      pRx->notify();
+    }
+  }
 
   delay(100);
 }
