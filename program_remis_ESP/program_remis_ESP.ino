@@ -2,33 +2,25 @@
 #include <NimBLEDevice.h>
 #include <TinyGPSPlus.h>
 
-// ========================================
-// GLOBAL STATE - REAL GPS ONLY
-// ========================================
-
-// GPS
 TinyGPSPlus gps;
-HardwareSerial GPSSerial(2); // UART2: RX=16, TX=17
+HardwareSerial GPSSerial(2);
 
 float gpsLat = 0;
 float gpsLon = 0;
-float gpsSpeed = 0;  // km/h
-float gpsCourse = 0; // heading degrees
+float gpsSpeed = 0;
+float gpsCourse = 0;
 bool gpsValid = false;
 float speedFiltered = 0;
 
-// Tracking
 bool tracking = false;
 unsigned long startTime = 0;
 float distanceMeters = 0;
 
-// Distance calculation
 float lastLat = 0;
 float lastLon = 0;
 bool hasLast = false;
 float totalDistanceMeters = 0;
 
-// Route & Navigation
 #define MAX_POINTS 20
 float routeLat[MAX_POINTS];
 float routeLon[MAX_POINTS];
@@ -38,23 +30,17 @@ int routeIndex = 0;
 String currentNav = "STRAIGHT";
 int currentNavDistance = 0;
 
-// BLE
 NimBLECharacteristic *pRx = nullptr;
 std::string lastBleValue = "";
 
 #define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
 #define CHAR_RX_UUID "12345678-1234-1234-1234-1234567890ad"
 
-// Display
 TFT_eSPI tft = TFT_eSPI();
-
-// ========================================
-// MATH FUNCTIONS
-// ========================================
 
 float haversine(float lat1, float lon1, float lat2, float lon2)
 {
-  const float R = 6371000; // Earth radius in meters
+  const float R = 6371000;
   float dLat = radians(lat2 - lat1);
   float dLon = radians(lon2 - lon1);
 
@@ -107,10 +93,6 @@ String getTurnDirection(float currentHeading, float targetBearing)
   return "U-TURN";
 }
 
-// ========================================
-// GPS MODULE (REAL)
-// ========================================
-
 void initGPS()
 {
   Serial.println("Initializing GPS on UART2 (RX=16, TX=17)...");
@@ -120,13 +102,11 @@ void initGPS()
 
 void updateGPS()
 {
-  // Feed GPS data to TinyGPS
   while (GPSSerial.available())
   {
     gps.encode(GPSSerial.read());
   }
 
-  // Check location validity
   if (gps.location.isValid())
   {
     gpsLat = gps.location.lat();
@@ -138,21 +118,17 @@ void updateGPS()
     gpsValid = false;
   }
 
-  // Check speed validity
   if (gps.speed.isValid())
   {
     gpsSpeed = gps.speed.kmph();
-    // Low-pass filter for smoother readings
     speedFiltered = (speedFiltered * 0.8) + (gpsSpeed * 0.2);
   }
 
-  // Check course (heading) validity
   if (gps.course.isValid())
   {
     gpsCourse = gps.course.deg();
   }
 
-  // Debug: Print GPS status every 5 seconds
   static unsigned long lastPrint = 0;
   if (millis() - lastPrint > 5000)
   {
@@ -191,7 +167,6 @@ void updateDistance()
   {
     float d = haversine(lastLat, lastLon, gpsLat, gpsLon);
 
-    // Filter out GPS noise (jitter) - only accept distances < 20m
     if (d < 20 && d > 0)
     {
       totalDistanceMeters += d;
@@ -203,10 +178,6 @@ void updateDistance()
   lastLon = gpsLon;
   hasLast = true;
 }
-
-// ========================================
-// NAVIGATION ENGINE
-// ========================================
 
 void updateNavigation()
 {
@@ -234,11 +205,9 @@ void updateNavigation()
   float targetLat = routeLat[routeIndex];
   float targetLon = routeLon[routeIndex];
 
-  // Distance to current target
   float dist = haversine(gpsLat, gpsLon, targetLat, targetLon);
   currentNavDistance = (int)dist;
 
-  // Check if reached waypoint (15 meter threshold)
   if (dist < 15)
   {
     routeIndex++;
@@ -254,35 +223,25 @@ void updateNavigation()
     targetLon = routeLon[routeIndex];
   }
 
-  // Calculate bearing to target
   float bearing = calculateBearing(gpsLat, gpsLon, targetLat, targetLon);
 
-  // Get turn direction based on current heading
   currentNav = getTurnDirection(gpsCourse, bearing);
 }
-
-// ========================================
-// DISPLAY
-// ========================================
 
 void drawUI(float speed, float distance, unsigned long elapsed)
 {
   tft.fillScreen(TFT_BLACK);
 
-  // SPEED
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
   tft.drawString("SPEED: " + String(speed, 1) + " km/h", 10, 20);
 
-  // DISTANCE
   tft.drawString("DIST: " + String(distance / 1000.0, 2) + " km", 10, 60);
 
-  // TIME
   int m = elapsed / 60;
   int s = elapsed % 60;
   tft.drawString("TIME: " + String(m) + ":" + (s < 10 ? "0" : "") + String(s), 10, 100);
 
-  // STATUS
   if (tracking)
   {
     tft.setTextColor(TFT_GREEN);
@@ -294,12 +253,10 @@ void drawUI(float speed, float distance, unsigned long elapsed)
     tft.drawString("STOPPED", 10, 140);
   }
 
-  // GPS Status
   tft.setTextColor(gpsValid ? TFT_GREEN : TFT_RED);
   tft.setTextSize(1);
   tft.drawString(gpsValid ? "GPS OK" : "NO GPS", 10, 160);
 
-  // NAVIGATION - Arrow symbols
   tft.setTextColor(TFT_YELLOW);
   tft.setTextSize(3);
 
@@ -335,18 +292,15 @@ void drawUI(float speed, float distance, unsigned long elapsed)
 
   tft.drawString(arrow, 200, 140);
 
-  // Navigation distance
   tft.setTextColor(TFT_YELLOW);
   tft.setTextSize(1);
   tft.drawString("NAV: " + currentNav + " in " + String(currentNavDistance) + "m", 10, 200);
 
-  // Waypoint counter
   if (routeSize > 0)
   {
     tft.drawString("Wp: " + String(routeIndex) + "/" + String(routeSize), 10, 225);
   }
 
-  // GPS coordinates
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(1);
   if (gpsValid)
@@ -355,10 +309,6 @@ void drawUI(float speed, float distance, unsigned long elapsed)
     tft.drawString("Lon: " + String(gpsLon, 5), 10, 250);
   }
 }
-
-// ========================================
-// BLE COMMAND PROCESSING
-// ========================================
 
 void processBleCommand(std::string cmd)
 {
@@ -420,10 +370,6 @@ void processBleCommand(std::string cmd)
   }
 }
 
-// ========================================
-// SETUP
-// ========================================
-
 void setup()
 {
   Serial.begin(115200);
@@ -431,16 +377,13 @@ void setup()
 
   Serial.println("\n\n=== BIKE COMPUTER SETUP (REAL GPS) ===\n");
 
-  // DISPLAY
   tft.init();
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
   tft.drawString("BOOTING...", 10, 10);
 
-  // GPS
   initGPS();
 
-  // BLE - POLLING MODE
   Serial.println("Initializing BLE...");
   NimBLEDevice::init("BikeComputer");
   NimBLEDevice::setPower(ESP_PWR_LVL_P9);
@@ -452,7 +395,8 @@ void setup()
       CHAR_RX_UUID,
       NIMBLE_PROPERTY::READ |
           NIMBLE_PROPERTY::WRITE |
-          NIMBLE_PROPERTY::WRITE_NR);
+          NIMBLE_PROPERTY::WRITE_NR |
+          NIMBLE_PROPERTY::NOTIFY);
 
   pRx->setValue("READY");
   service->start();
@@ -469,16 +413,10 @@ void setup()
   Serial.println("✅ SETUP COMPLETE\n");
 }
 
-// ========================================
-// MAIN LOOP
-// ========================================
-
 void loop()
 {
-  // Update GPS
   updateGPS();
 
-  // POLL BLE for changes
   if (pRx != nullptr)
   {
     std::string currentValue = pRx->getValue();
@@ -493,18 +431,29 @@ void loop()
     }
   }
 
-  // Update distance if tracking and GPS is valid
   if (tracking && gpsValid)
   {
     updateDistance();
   }
 
-  // Update navigation
   updateNavigation();
 
-  // Update display
   unsigned long elapsed = tracking ? (millis() - startTime) / 1000 : 0;
   drawUI(speedFiltered, distanceMeters, elapsed);
+
+  static unsigned long lastBleUpdate = 0;
+  if (millis() - lastBleUpdate > 1000) {
+    lastBleUpdate = millis();
+    if (pRx != nullptr) {
+      String statusMsg = "STA:" + String(gpsValid ? "1" : "0") + "," +
+                         String(speedFiltered, 1) + "," +
+                         String((int)distanceMeters);
+
+      pRx->setValue(statusMsg.c_str());
+      pRx->notify();
+      Serial.println("BLE PUSH: " + statusMsg);
+    }
+  }
 
   delay(100);
 }

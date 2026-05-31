@@ -20,11 +20,13 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-
+var rideState = false;
 @Composable
 fun NavigationScreen(viewModel: NavigationViewModel) {
+    var isRideActive by remember { mutableStateOf(false) }
     val routePoints by viewModel.routePoints.collectAsState()
     val bleState by viewModel.bleState.collectAsState()
+    val hasEspGpsFix by viewModel.hasEspGpsFix.collectAsState()
     val destination by viewModel.destination.collectAsState()
     val currentLocation by viewModel.currentLocation.collectAsState()
     val currentInstruction by viewModel.currentInstruction.collectAsState()
@@ -52,15 +54,12 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                 }
             },
             update = { mapView ->
-                // Clear dynamic overlays, keep the MapEventsOverlay
-                // Remove all dynamic overlays safely
                 val overlaysToRemove = mapView.overlays.filter {
                     it !is MapEventsOverlay
                 }
 
                 mapView.overlays.removeAll(overlaysToRemove)
                 
-                // Draw route
                 if (routePoints.isNotEmpty()) {
                     val line = Polyline(mapView)
                     line.setPoints(routePoints)
@@ -69,7 +68,6 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                     mapView.overlays.add(line)
                 }
 
-                // Draw user location
                 currentLocation?.let { loc ->
                     val marker = Marker(mapView)
                     marker.position = loc
@@ -77,13 +75,11 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                     marker.title = "You"
                     mapView.overlays.add(marker)
                     
-                    // Initial center
                     if (mapView.mapCenter.latitude == 0.0 && mapView.mapCenter.longitude == 0.0) {
                          mapView.controller.setCenter(loc)
                     }
                 }
 
-                // Draw destination
                 destination?.let { dest ->
                     val marker = Marker(mapView)
                     marker.position = dest
@@ -96,12 +92,17 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
             }
         )
 
-        // Status bar and buttons...
         Column(
             modifier = Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopCenter),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            StatusCard(bleState)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatusCard(bleState, Modifier.weight(1f))
+                GpsStatusCard(hasEspGpsFix, bleState == BleState.Connected || bleState == BleState.NavigationActive)
+            }
             if (currentInstruction.isNotEmpty() && currentInstruction != "Ready" && currentInstruction != "No route") {
                 NavigationCard(currentInstruction, distanceToNextManeuver, currentStepIndex)
             }
@@ -126,16 +127,43 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ActionButton("START", Color(0xFF2E7D32), Modifier.weight(1f)) { viewModel.startRide() }
-                ActionButton("STOP", Color(0xFFC62828), Modifier.weight(1f)) { viewModel.stopRide() }
-                ActionButton("RESET", Color.DarkGray, Modifier.weight(1f)) { viewModel.resetRide() }
+                if (!isRideActive) {
+                    ActionButton(
+                        text = "START",
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.weight(1f),
+                        enabled = bleState == BleState.Connected || bleState == BleState.RouteSent
+                    ) {
+                        isRideActive = true
+                        viewModel.startRide()
+                    }
+                } else {
+                    ActionButton(
+                        text = "STOP",
+                        color = Color(0xFFC62828),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        viewModel.stopRide()
+                        isRideActive = false
+                    }
+                }
+                
+                ActionButton(
+                    text = "RESET",
+                    color = Color.DarkGray,
+                    modifier = Modifier.weight(1f),
+                    enabled = bleState != BleState.Disconnected
+                ) {
+                    viewModel.resetRide()
+                    isRideActive = false
+                }
             }
         }
     }
 }
 
 @Composable
-fun StatusCard(state: BleState) {
+fun StatusCard(state: BleState, modifier: Modifier = Modifier) {
     val color = when (state) {
         BleState.Connected -> Color(0xFF2E7D32)
         BleState.Connecting -> Color(0xFFF9A825)
@@ -143,6 +171,28 @@ fun StatusCard(state: BleState) {
         BleState.RouteSent -> Color.Cyan
         BleState.NavigationActive -> Color.Blue
     }
+
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = 0.8f),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.size(12.dp).background(color, RoundedCornerShape(50)))
+            Spacer(Modifier.width(12.dp))
+            Text(text = state.name.replace(Regex("(?<=[a-z])(?=[A-Z])"), " ").uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun GpsStatusCard(hasFix: Boolean, isConnected: Boolean) {
+    val color = if (!isConnected) Color.Gray else if (hasFix) Color(0xFF2E7D32) else Color(0xFFF9A825)
+    val text = if (!isConnected) "OFFLINE" else if (hasFix) "GPS FIXED" else "NO GPS FIX"
 
     Surface(
         color = Color.Black.copy(alpha = 0.8f),
@@ -155,20 +205,30 @@ fun StatusCard(state: BleState) {
         ) {
             Box(modifier = Modifier.size(12.dp).background(color, RoundedCornerShape(50)))
             Spacer(Modifier.width(12.dp))
-            Text(text = state.name.uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+            Text(text = text, color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-fun ActionButton(text: String, color: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun ActionButton(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.height(60.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = color),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = color,
+            disabledContainerColor = color.copy(alpha = 0.3f)
+        ),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Text(text, fontWeight = FontWeight.Bold, color = Color.White)
+        Text(text, fontWeight = FontWeight.Bold, color = if (enabled) Color.White else Color.Gray)
     }
 }
 

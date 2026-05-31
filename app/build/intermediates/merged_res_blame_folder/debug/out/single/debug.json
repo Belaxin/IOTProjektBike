@@ -1,6 +1,10 @@
 [
     {
-        "merged": "com.example.bikecontroller.app-merged_res-57:/layout_activity_main.xml.flat",
-        "source": "com.example.bikecontroller.app-main-59:/layout/activity_main.xml"
+        "merged": "com.example.bikecontroller.app-merged_res-76:/drawable_capture1.PNG.flat",
+        "source": "com.example.bikecontroller.app-main-78:/drawable/capture1.PNG"
+    },
+    {
+        "merged": "com.example.bikecontroller.app-merged_res-76:/layout_activity_main.xml.flat",
+        "source": "com.example.bikecontroller.app-main-78:/layout/activity_main.xml"
     }
 ]

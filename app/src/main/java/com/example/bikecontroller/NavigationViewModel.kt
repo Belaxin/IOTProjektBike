@@ -7,6 +7,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.bikecontroller.AppDatabase
+import com.example.bikecontroller.Ride
 import com.google.android.gms.location.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +17,8 @@ import kotlinx.coroutines.launch
 import org.osmdroid.util.GeoPoint
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.text.SimpleDateFormat
+import java.util.*
 
 class NavigationViewModel(private val bleManager: BleManager, context: Context) : ViewModel() {
 
@@ -27,7 +31,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     private val _currentLocation = MutableStateFlow<GeoPoint?>(null)
     val currentLocation: StateFlow<GeoPoint?> = _currentLocation.asStateFlow()
 
-    // Step-based navigation
     private val _navigationSteps = MutableStateFlow<List<NavigationStep>>(emptyList())
     val navigationSteps: StateFlow<List<NavigationStep>> = _navigationSteps.asStateFlow()
 
@@ -42,19 +45,23 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
 
     private var lastInstructionTime = 0L
     private var lastInstruction = ""
-    private val instructionCooldownMs = 5000L // 5 second cooldown
+    private val instructionCooldownMs = 5000L
 
     private var lastRerouteTime = 0L
-    private val rerouteCooldownMs = 10000L // 10 second cooldown
+    private val rerouteCooldownMs = 10000L
 
     private var lastStableHeading = 0f
-    private val minSpeedForHeading = 3f // km/h
+    private val minSpeedForHeading = 3f
 
     val bleState = bleManager.connectionState
     val speed = bleManager.speed
     val distance = bleManager.distance
+    val hasEspGpsFix = bleManager.hasGpsFix
 
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    private val db = AppDatabase.getDatabase(context)
+    private var rideStartTime: Long = 0L
+    private val recordedPath = mutableListOf<GeoPoint>()
     
     private val routeService = Retrofit.Builder()
         .baseUrl("https://router.project-osrm.org/")
@@ -65,7 +72,13 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let {
-                _currentLocation.value = GeoPoint(it.latitude, it.longitude)
+                val point = GeoPoint(it.latitude, it.longitude)
+                _currentLocation.value = point
+                
+                if (rideStartTime > 0L) {
+                    recordedPath.add(point)
+                }
+
                 it.bearing?.let { bearing ->
                     if (it.speed >= minSpeedForHeading) {
                         lastStableHeading = bearing
@@ -128,7 +141,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
                     val allPoints = route.geometry.coordinates.map { GeoPoint(it[1], it[0]) }
                     _routePoints.value = allPoints
 
-                    // Parse steps from legs
                     val steps = mutableListOf<NavigationStep>()
                     route.legs.forEach { leg ->
                         leg.steps.forEach { step ->
@@ -181,16 +193,14 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         val stepEndpoint = currentStep.geometry.last()
         val distToEnd = haversine(current.latitude, current.longitude, stepEndpoint.latitude, stepEndpoint.longitude)
 
-        // Advance to next step if current is complete (< 15m)
         if (distToEnd < 15 && stepIdx + 1 < steps.size) {
             _currentStepIndex.value = stepIdx + 1
-            lastInstructionTime = 0L // Reset cooldown on step change
+            lastInstructionTime = 0L
             Log.d("NavVM", "Advanced to step ${stepIdx + 1}")
-            updateNavigation() // Recurse to update with new step
+            updateNavigation()
             return
         }
 
-        // Update instruction with cooldown
         val now = System.currentTimeMillis()
         if (currentStep.instruction != lastInstruction || (now - lastInstructionTime) > instructionCooldownMs) {
             _currentInstruction.value = currentStep.instruction
@@ -201,8 +211,7 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
 
         _distanceToNextManeuver.value = distToEnd.toInt()
 
-        // Check reroute condition
-        val routeOffTrack = distToEnd > 30 // 30m off track
+        val routeOffTrack = distToEnd > 30
         if (routeOffTrack && (now - lastRerouteTime) > rerouteCooldownMs) {
             Log.w("NavVM", "User off track by ${distToEnd}m, rerouting...")
             lastRerouteTime = now
@@ -224,7 +233,7 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     }
 
     private fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val R = 6371000.0  // Earth radius in meters
+        val R = 6371000.0
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
         val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
@@ -234,9 +243,64 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         return R * c
     }
 
-    fun startRide() = bleManager.startRide()
-    fun stopRide() = bleManager.stopRide()
-    fun resetRide() = bleManager.resetRide()
+    fun startRide() {
+        if (bleState.value != BleState.Connected && bleState.value != BleState.RouteSent) {
+            Log.w("NavVM", "Cannot start ride: Bike not connected")
+            return
+        }
+        rideStartTime = System.currentTimeMillis()
+        recordedPath.clear()
+        _currentLocation.value?.let { recordedPath.add(it) }
+        bleManager.startRide()
+    }
+
+    fun stopRide() {
+        val endTime = System.currentTimeMillis()
+        val totalDistanceMeters = distance.value
+        val durationSec = if (rideStartTime > 0) (endTime - rideStartTime) / 1000 else 0L
+        
+        val pathString = recordedPath.joinToString(";") { "${it.latitude},${it.longitude}" }
+
+        viewModelScope.launch {
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = endTime
+            
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val startOfDay = calendar.timeInMillis
+            
+            calendar.set(Calendar.HOUR_OF_DAY, 23)
+            calendar.set(Calendar.MINUTE, 59)
+            calendar.set(Calendar.SECOND, 59)
+            calendar.set(Calendar.MILLISECOND, 999)
+            val endOfDay = calendar.timeInMillis
+            
+            val count = db.rideDao().getRidesCountForDay(startOfDay, endOfDay)
+            val dateLabel = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(endTime))
+            val rideName = if (count == 0) dateLabel else "$dateLabel #${count + 1}"
+
+            val ride = Ride(
+                date = endTime,
+                distanceKm = totalDistanceMeters / 1000.0,
+                durationSeconds = durationSec,
+                pathData = pathString,
+                name = rideName
+            )
+            db.rideDao().insertRide(ride)
+            Log.d("NavVM", "Saved ride: $rideName, ${totalDistanceMeters}m in ${durationSec}s")
+            recordedPath.clear()
+        }
+        
+        bleManager.stopRide()
+        rideStartTime = 0L
+    }
+
+    fun resetRide() {
+        bleManager.resetRide()
+        rideStartTime = 0L
+    }
 
     override fun onCleared() {
         super.onCleared()

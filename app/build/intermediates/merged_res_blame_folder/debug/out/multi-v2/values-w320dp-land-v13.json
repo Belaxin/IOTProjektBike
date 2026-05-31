@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.example.bikecontroller.app-mergeDebugResources-55:/values-w320dp-land-v13/values-w320dp-land-v13.xml",
+            "outputFile": "com.example.bikecontroller.app-mergeDebugResources-74:/values-w320dp-land-v13/values-w320dp-land-v13.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\lenovo\\.gradle\\caches\\transforms-3\\dee1be031605417be5043214a12ed157\\transformed\\material-1.9.0\\res\\values-w320dp-land-v13\\values-w320dp-land-v13.xml",
+                    "source": "C:\\Users\\Tomas\\.gradle\\caches\\transforms-3\\84114cdc67145947aeae5617e585aba8\\transformed\\material-1.11.0\\res\\values-w320dp-land-v13\\values-w320dp-land-v13.xml",
                     "from": {
                         "startLines": "2,3",
                         "startColumns": "4,4",

@@ -33,9 +33,12 @@ class BleManager(private val context: Context) {
     private val _distance = MutableStateFlow(0)
     val distance = _distance.asStateFlow()
 
+    private val _hasGpsFix = MutableStateFlow(false)
+    val hasGpsFix = _hasGpsFix.asStateFlow()
+
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab")
     private val RX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
-    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ac")
+    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
     private val CLIENT_CONFIG_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     
     private var lastDevice: BluetoothDevice? = null
@@ -60,11 +63,12 @@ class BleManager(private val context: Context) {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 _connectionState.value = BleState.Connected
-                // Request higher MTU to support longer ROUTE packets
+                DebugLogger.log("CONNECTED")
                 gatt.requestMtu(512)
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 _connectionState.value = BleState.Disconnected
+                DebugLogger.log("DISCONNECTED")
                 rxChar = null
                 handler.postDelayed({
                     if (_connectionState.value == BleState.Disconnected) lastDevice?.let { connect(it) }
@@ -74,13 +78,23 @@ class BleManager(private val context: Context) {
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            DebugLogger.log("SERVICES DISCOVERED: $status")
             if (status == BluetoothGatt.GATT_SUCCESS) {
+                gatt.services.forEach { service ->
+                    DebugLogger.log("Svc: ${service.uuid}")
+                    service.characteristics.forEach { char ->
+                        DebugLogger.log("  Char: ${char.uuid}")
+                    }
+                }
+
                 val service = gatt.getService(SERVICE_UUID)
                 rxChar = service?.getCharacteristic(RX_UUID)
                 
                 service?.getCharacteristic(TX_UUID)?.let { txChar ->
+                    DebugLogger.log("TX CHAR FOUND")
                     gatt.setCharacteristicNotification(txChar, true)
                     txChar.getDescriptor(CLIENT_CONFIG_DESCRIPTOR)?.let { descriptor ->
+                        DebugLogger.log("DESCRIPTOR FOUND")
                         descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         gatt.writeDescriptor(descriptor)
                     }
@@ -94,21 +108,37 @@ class BleManager(private val context: Context) {
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == TX_UUID) {
-                val data = characteristic.value.toString(Charsets.UTF_8)
-                parseTelemetry(data)
+            val dataBytes = characteristic.value
+            val dataString = if (dataBytes != null) String(dataBytes, Charsets.UTF_8) else "NULL"
+            DebugLogger.log("CHG: ${characteristic.uuid.toString().takeLast(4)} -> $dataString")
+            
+            if (characteristic.uuid == TX_UUID && dataBytes != null) {
+                parseTelemetry(dataString)
             }
         }
     }
 
     private fun parseTelemetry(data: String) {
+        val trimmed = data.trim()
+        DebugLogger.log("RX: [$trimmed]")
+        
         try {
             when {
-                data.startsWith("SPD:") -> _speed.value = data.substring(4).toFloat()
-                data.startsWith("DIST:") -> _distance.value = data.substring(5).toInt()
+                trimmed.startsWith("STA:") -> {
+                    val parts = trimmed.substring(4).split(",")
+                    if (parts.size >= 3) {
+                        _hasGpsFix.value = parts[0] == "1"
+                        _speed.value = parts[1].toFloatOrNull() ?: 0f
+                        _distance.value = parts[2].toIntOrNull() ?: 0
+                    }
+                }
+                trimmed.startsWith("SPD:") -> _speed.value = trimmed.substring(4).toFloat()
+                trimmed.startsWith("DIST:") -> _distance.value = trimmed.substring(5).toInt()
+                trimmed.contains("GPS:1") -> _hasGpsFix.value = true
+                trimmed.contains("GPS:0") -> _hasGpsFix.value = false
             }
         } catch (e: Exception) {
-            Log.e("BleManager", "Telemetry error: $data")
+            Log.e("BleManager", "Parse error for: [$trimmed]", e)
         }
     }
 
@@ -121,10 +151,6 @@ class BleManager(private val context: Context) {
         }
         
         val data = cmd.toByteArray()
-        
-        // We MUST use WRITE_TYPE_DEFAULT (Write with response) for long packets like ROUTE:
-        // This allows the Android system to automatically handle Long Writes (MTU > payload).
-        // Manual chunking would break the ESP32 side which parses the whole characteristic.
         val writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -155,7 +181,6 @@ class BleManager(private val context: Context) {
 
     fun sendRoute(points: List<Pair<Double, Double>>) {
         if (points.isEmpty()) return
-        // Take 20 points as per ESP32 firmware MAX_POINTS
         val routeString = "ROUTE:" + points.take(20).joinToString(";") { (lat, lon) ->
             String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
         }

@@ -7,6 +7,7 @@ color purple_700
 color teal_200
 color teal_700
 color white
+drawable capture1
 id btnReset
 id btnStart
 id btnStop

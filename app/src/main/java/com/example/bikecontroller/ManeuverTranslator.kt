@@ -1,9 +1,5 @@
 package com.example.bikecontroller
 
-/**
- * Convert OSRM maneuver types and modifiers into human-readable instructions.
- * https://github.com/Project-OSRM/osrm-backend/wiki/Node.js-Example
- */
 object ManeuverTranslator {
     fun translate(maneuverType: String?, modifier: String?, name: String?): String {
         if (maneuverType == null) {

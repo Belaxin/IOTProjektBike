@@ -20,11 +20,33 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import org.osmdroid.config.Configuration
 import java.util.*
+
+sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
+    object Map : Screen("map", "Map", Icons.Default.Map)
+    object Rides : Screen("rides", "Rides", Icons.Default.History)
+    object Debug : Screen("debug", "Debug", Icons.Default.BugReport)
+    object RideDetails : Screen("rideDetails/{rideId}", "Details", Icons.Default.History)
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -36,7 +58,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize osmdroid configuration for map tile caching
         Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
 
         bleManager = BleManager(this)
@@ -47,12 +68,77 @@ class MainActivity : ComponentActivity() {
             val navViewModel: NavigationViewModel = viewModel(
                 factory = NavigationViewModelFactory(bleManager, applicationContext)
             )
+            val navController = rememberNavController()
+            val navBackStackEntry by navController.currentBackStackEntryAsState()
+            val currentDestination = navBackStackEntry?.destination
             
             LaunchedEffect(Unit) {
                 checkPermissionsAndScan()
             }
 
-            NavigationScreen(viewModel = navViewModel)
+            Scaffold(
+                bottomBar = {
+                    val currentRoute = currentDestination?.route
+                    if (currentRoute == Screen.Map.route || currentRoute == Screen.Rides.route || currentRoute == Screen.Debug.route) {
+                        NavigationBar(
+                            containerColor = Color.Black,
+                            contentColor = Color.White
+                        ) {
+                            val items = listOf(Screen.Map, Screen.Rides, Screen.Debug)
+                            items.forEach { screen ->
+                                NavigationBarItem(
+                                    icon = { Icon(screen.icon, contentDescription = screen.label) },
+                                    label = { Text(screen.label) },
+                                    selected = currentDestination?.route == screen.route,
+                                    onClick = {
+                                        navController.navigate(screen.route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color.Cyan,
+                                        selectedTextColor = Color.Cyan,
+                                        unselectedIconColor = Color.Gray,
+                                        unselectedTextColor = Color.Gray,
+                                        indicatorColor = Color.DarkGray
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            ) { innerPadding ->
+                NavHost(
+                    navController = navController,
+                    startDestination = Screen.Map.route,
+                    modifier = Modifier.padding(innerPadding)
+                ) {
+                    composable(Screen.Map.route) {
+                        NavigationScreen(viewModel = navViewModel)
+                    }
+                    composable(Screen.Rides.route) {
+                        RidesScreen(onRideClick = { id ->
+                            navController.navigate("rideDetails/$id")
+                        })
+                    }
+                    composable(Screen.Debug.route) {
+                        DebugScreen()
+                    }
+                    composable(
+                        route = Screen.RideDetails.route,
+                        arguments = listOf(navArgument("rideId") { type = NavType.IntType })
+                    ) { backStackEntry ->
+                        val rideId = backStackEntry.arguments?.getInt("rideId") ?: 0
+                        RideDetailsScreen(rideId = rideId, onBack = {
+                            navController.popBackStack()
+                        })
+                    }
+                }
+            }
         }
     }
 
