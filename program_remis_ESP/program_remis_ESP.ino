@@ -512,19 +512,14 @@ void loop()
   if (millis() - lastBleUpdate > 1000) {
     lastBleUpdate = millis();
     if (pRx != nullptr) {
-      // Send GPS status
-      pRx->setValue(gpsValid ? "GPS:1" : "GPS:0");
-      pRx->notify();
+      // Send consolidated status: STA:fix,speed,distance
+      String statusMsg = "STA:" + String(gpsValid ? "1" : "0") + "," +
+                         String(speedFiltered, 1) + "," +
+                         String((int)distanceMeters);
 
-      // Send Speed
-      String spdMsg = "SPD:" + String(speedFiltered, 1);
-      pRx->setValue(spdMsg.c_str());
+      pRx->setValue(statusMsg.c_str());
       pRx->notify();
-
-      // Send Distance
-      String distMsg = "DIST:" + String((int)distanceMeters);
-      pRx->setValue(distMsg.c_str());
-      pRx->notify();
+      Serial.println("BLE PUSH: " + statusMsg);
     }
   }
 
