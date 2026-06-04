@@ -379,6 +379,16 @@ void processBleCommand(std::string cmd)
   {
     tracking = false;
     Serial.println("✅ TRACKING STOPPED");
+      }
+  else if (value.equalsIgnoreCase("PAUSE"))
+  {
+    tracking = false;
+    Serial.println("✅ TRACKING PAUSED");
+  }
+  else if (value.equalsIgnoreCase("RESUME"))
+  {
+    tracking = true;
+    Serial.println("✅ TRACKING RESUMED");
   }
   else if (value.equalsIgnoreCase("PAUSE"))
   {
