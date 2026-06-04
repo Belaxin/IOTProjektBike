@@ -32,6 +32,7 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
     val currentInstruction by viewModel.currentInstruction.collectAsState()
     val distanceToNextManeuver by viewModel.distanceToNextManeuver.collectAsState()
     val currentStepIndex by viewModel.currentStepIndex.collectAsState()
+    val isPaused by viewModel.isPaused.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
@@ -149,13 +150,12 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                 }
                 
                 ActionButton(
-                    text = "RESET",
+                    text = if (isPaused) "RESUME" else "PAUSE",
                     color = Color.DarkGray,
                     modifier = Modifier.weight(1f),
-                    enabled = bleState != BleState.Disconnected
+                    enabled = isRideActive && bleState != BleState.Disconnected
                 ) {
-                    viewModel.resetRide()
-                    isRideActive = false
+                    viewModel.togglePauseRide()
                 }
             }
         }

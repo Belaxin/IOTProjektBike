@@ -61,6 +61,12 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     private val db = AppDatabase.getDatabase(context)
     private var rideStartTime: Long = 0L
+    private var totalPausedTime: Long = 0L
+    private var pauseTimestamp: Long = 0L
+
+    private val _isPaused = MutableStateFlow(false)
+    val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
+
     private val recordedPath = mutableListOf<GeoPoint>()
     
     private val routeService = Retrofit.Builder()
@@ -75,7 +81,7 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
                 val point = GeoPoint(it.latitude, it.longitude)
                 _currentLocation.value = point
                 
-                if (rideStartTime > 0L) {
+                if (rideStartTime > 0L && !_isPaused.value) {
                     recordedPath.add(point)
                 }
 
@@ -249,6 +255,9 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
             return
         }
         rideStartTime = System.currentTimeMillis()
+        totalPausedTime = 0L
+        pauseTimestamp = 0L
+        _isPaused.value = false
         recordedPath.clear()
         _currentLocation.value?.let { recordedPath.add(it) }
         bleManager.startRide()
@@ -256,8 +265,13 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
 
     fun stopRide() {
         val endTime = System.currentTimeMillis()
+        
+        if (_isPaused.value) {
+            totalPausedTime += (endTime - pauseTimestamp)
+        }
+
         val totalDistanceMeters = distance.value
-        val durationSec = if (rideStartTime > 0) (endTime - rideStartTime) / 1000 else 0L
+        val durationSec = if (rideStartTime > 0) (endTime - rideStartTime - totalPausedTime) / 1000 else 0L
         
         val pathString = recordedPath.joinToString(";") { "${it.latitude},${it.longitude}" }
 
@@ -295,11 +309,28 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         
         bleManager.stopRide()
         rideStartTime = 0L
+        _isPaused.value = false
+    }
+
+    fun togglePauseRide() {
+        if (rideStartTime == 0L) return
+        
+        val now = System.currentTimeMillis()
+        if (_isPaused.value) {
+            totalPausedTime += (now - pauseTimestamp)
+            _isPaused.value = false
+            bleManager.resumeRide()
+        } else {
+            pauseTimestamp = now
+            _isPaused.value = true
+            bleManager.pauseRide()
+        }
     }
 
     fun resetRide() {
         bleManager.resetRide()
         rideStartTime = 0L
+        _isPaused.value = false
     }
 
     override fun onCleared() {

@@ -177,6 +177,14 @@ class BleManager(private val context: Context) {
         send("STOP")
     }
 
+    fun pauseRide() {
+        send("PAUSE")
+    }
+
+    fun resumeRide() {
+        send("RESUME")
+    }
+
     fun resetRide() = send("RESET")
 
     fun sendRoute(points: List<Pair<Double, Double>>) {
