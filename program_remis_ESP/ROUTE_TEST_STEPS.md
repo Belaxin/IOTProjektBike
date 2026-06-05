@@ -23,3 +23,4 @@ Notes:
 - The ESP firmware expects `ROUTE:lat,lon;lat,lon;...` with `.` decimal separator.
 - We limit routes to the first 15 points on the app side to reduce fragmentation.
 - If you prefer guaranteed delivery, we can implement per-chunk acknowledgements (more work on both sides).
+W
