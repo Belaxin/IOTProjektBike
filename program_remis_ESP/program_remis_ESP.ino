@@ -36,6 +36,8 @@ int routeIndex = 0;
 bool receivingChunkedRoute = false;
 int expectedWaypointCount = 0;
 String routeDataBuffer = "";
+// Safety cap to avoid runaway memory use from malformed transfers
+#define MAX_WAYPOINTS 2000
 
 String currentNav = "STRAIGHT";
 int currentNavDistance = 0;
@@ -715,20 +717,45 @@ void processBleCommand(std::string cmd)
     routeLon.clear();
     receivingChunkedRoute = true;
     expectedWaypointCount = value.substring(12).toInt();
+    routeDataBuffer = "";
     Serial.print("🔄 ROUTE_START: Expecting ");
     Serial.print(expectedWaypointCount);
     Serial.println(" waypoints");
-  }
-  else if (value.startsWith("ROUTE_DATA:") && receivingChunkedRoute)
-  {
-    // Chunk of waypoints
-    value.remove(0, 11);
 
-    int start = 0;
+    // Acknowledge route start immediately so sender can begin chunked transfer
+    if (pTx != nullptr)
+    {
+      String ack = "ROUTE_ACK:0";
+      pTx->setValue(ack.c_str());
+      pTx->notify();
+    }
+  }
+  else if (value.startsWith("ROUTE_DATA:"))
+  {
+    if (!receivingChunkedRoute)
+    {
+      Serial.println("⚠️ ROUTE_DATA received before ROUTE_START; ignoring");
+      if (pTx != nullptr)
+      {
+        String err = "ROUTE_ERR:ORDER";
+        pTx->setValue(err.c_str());
+        pTx->notify();
+      }
+      return;
+    }
+
+    // Chunk of waypoints (append to buffer and parse complete tokens)
+    value.remove(0, 11);
+    routeDataBuffer += value;
+
+    // Parse complete tokens terminated by ';'
     while (true)
     {
-      int sep = value.indexOf(';', start);
-      String part = (sep == -1) ? value.substring(start) : value.substring(start, sep);
+      int sep = routeDataBuffer.indexOf(';');
+      if (sep == -1)
+        break;
+      String part = routeDataBuffer.substring(0, sep);
+      routeDataBuffer = routeDataBuffer.substring(sep + 1);
 
       int comma = part.indexOf(',');
       if (comma > 0)
@@ -737,18 +764,60 @@ void processBleCommand(std::string cmd)
         routeLon.push_back(part.substring(comma + 1).toFloat());
       }
 
-      if (sep == -1)
+      // safety cap
+      if ((int)routeLat.size() >= MAX_WAYPOINTS)
+      {
+        Serial.println("ERROR: route exceeds MAX_WAYPOINTS, aborting route receive");
+        receivingChunkedRoute = false;
+        // notify phone of error
+        if (pTx != nullptr)
+        {
+          String err = "ROUTE_ERR:MAX";
+          pTx->setValue(err.c_str());
+          pTx->notify();
+        }
+        routeDataBuffer = "";
         break;
-      start = sep + 1;
+      }
     }
 
     Serial.print("✅ ROUTE_DATA chunk: now have ");
     Serial.print(routeLat.size());
     Serial.println(" waypoints");
+
+    // Send ACK of current count
+    if (pTx != nullptr)
+    {
+      String ack = "ROUTE_ACK:" + String(routeLat.size());
+      pTx->setValue(ack.c_str());
+      pTx->notify();
+    }
   }
   else if (value.equalsIgnoreCase("ROUTE_END") && receivingChunkedRoute)
   {
     // End of chunked route transmission
+    // Parse any remaining data in buffer (last token may not have trailing ';')
+    if (routeDataBuffer.length() > 0)
+    {
+      // split remaining by ';' just in case, then parse final piece
+      int start = 0;
+      while (true)
+      {
+        int sep = routeDataBuffer.indexOf(';', start);
+        String part = (sep == -1) ? routeDataBuffer.substring(start) : routeDataBuffer.substring(start, sep);
+        int comma = part.indexOf(',');
+        if (comma > 0)
+        {
+          routeLat.push_back(part.substring(0, comma).toFloat());
+          routeLon.push_back(part.substring(comma + 1).toFloat());
+        }
+        if (sep == -1)
+          break;
+        start = sep + 1;
+      }
+      routeDataBuffer = "";
+    }
+
     receivingChunkedRoute = false;
     routeIndex = 0;
     Serial.print("✅ ROUTE COMPLETE: ");
@@ -756,6 +825,14 @@ void processBleCommand(std::string cmd)
     Serial.print(" waypoints (expected ");
     Serial.print(expectedWaypointCount);
     Serial.println(")");
+
+    // Final ACK
+    if (pTx != nullptr)
+    {
+      String ack = "ROUTE_ACK:" + String(routeLat.size());
+      pTx->setValue(ack.c_str());
+      pTx->notify();
+    }
   }
   else if (value.startsWith("ROUTE:"))
   {
