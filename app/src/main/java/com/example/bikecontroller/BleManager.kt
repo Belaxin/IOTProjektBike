@@ -38,7 +38,7 @@ class BleManager(private val context: Context) {
 
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab")
     private val RX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
-    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
+    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ac")
     private val CLIENT_CONFIG_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     
     private var lastDevice: BluetoothDevice? = null
@@ -189,9 +189,30 @@ class BleManager(private val context: Context) {
 
     fun sendRoute(points: List<Pair<Double, Double>>) {
         if (points.isEmpty()) return
-        val routeString = "ROUTE:" + points.take(20).joinToString(";") { (lat, lon) ->
+        val routeString = "ROUTE:" + points.joinToString(";") { (lat, lon) ->
             String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
         }
         send(routeString)
+    }
+
+    fun sendRouteChunked(points: List<Pair<Double, Double>>) {
+        if (points.isEmpty()) return
+        
+        // Send route in chunks to avoid BLE packet overflow (512 byte limit)
+        val chunkSize = 40  // ~10-12 waypoints per chunk depending on coordinate precision
+        val chunks = points.chunked(chunkSize)
+        
+        Log.d("BleManager", "Sending route in ${chunks.size} chunks (${points.size} total waypoints)")
+        send("ROUTE_START:${points.size}")
+        
+        chunks.forEach { chunk ->
+            val chunkString = "ROUTE_DATA:" + chunk.joinToString(";") { (lat, lon) ->
+                String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
+            }
+            send(chunkString)
+            Thread.sleep(50)  // Small delay between chunks for ESP32 processing
+        }
+        
+        send("ROUTE_END")
     }
 }
