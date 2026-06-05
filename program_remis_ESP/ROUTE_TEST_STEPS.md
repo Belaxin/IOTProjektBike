@@ -529,7 +529,6 @@ void loop()
 
       pRx->setValue(statusMsg.c_str());
       pRx->notify();
-      Serial.println("BLE PUSH: " + statusMsg);
     }
   }
 

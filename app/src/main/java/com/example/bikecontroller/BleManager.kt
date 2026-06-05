@@ -198,8 +198,8 @@ class BleManager(private val context: Context) {
     fun sendRouteChunked(points: List<Pair<Double, Double>>) {
         if (points.isEmpty()) return
         
-        // Send route in chunks to avoid BLE packet overflow (512 byte limit)
-        val chunkSize = 40  // ~10-12 waypoints per chunk depending on coordinate precision
+        // Send route in chunks to avoid BLE MTU truncation on many devices
+        val chunkSize = 10  // safe per-chunk waypoint count for typical MTU
         val chunks = points.chunked(chunkSize)
         
         Log.d("BleManager", "Sending route in ${chunks.size} chunks (${points.size} total waypoints)")
@@ -210,7 +210,7 @@ class BleManager(private val context: Context) {
                 String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
             }
             send(chunkString)
-            Thread.sleep(50)  // Small delay between chunks for ESP32 processing
+            Thread.sleep(100)  // Small delay between chunks for ESP32 processing
         }
         
         send("ROUTE_END")
