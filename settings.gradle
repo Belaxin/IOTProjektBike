@@ -15,3 +15,19 @@ dependencyResolutionManagement {
 
 rootProject.name = "app_remis"
 include ':app'
+
+// Auto-detect Android SDK location for different users
+def localProps = new File(rootDir, "local.properties")
+if (!localProps.exists()) {
+    def sdkDir = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+    if (sdkDir == null) {
+        def home = System.getProperty("user.home")
+        def commonPath = "${home}/AppData/Local/Android/Sdk".replace('\\', '/')
+        if (new File(commonPath).exists()) {
+            sdkDir = commonPath
+        }
+    }
+    if (sdkDir != null) {
+        localProps.text = "sdk.dir=${sdkDir.replace('\\', '/')}\n"
+    }
+}

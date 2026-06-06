@@ -64,9 +64,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     private var totalPausedTime: Long = 0L
     private var pauseTimestamp: Long = 0L
 
-    private val _isRideActive = MutableStateFlow(false)
-    val isRideActive: StateFlow<Boolean> = _isRideActive.asStateFlow()
-
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
@@ -267,7 +264,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         rideStartTime = System.currentTimeMillis()
         totalPausedTime = 0L
         pauseTimestamp = 0L
-        _isRideActive.value = true
         _isPaused.value = false
         recordedPath.clear()
         _currentLocation.value?.let { recordedPath.add(it) }
@@ -320,7 +316,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         
         bleManager.stopRide()
         rideStartTime = 0L
-        _isRideActive.value = false
         _isPaused.value = false
     }
 
@@ -342,7 +337,6 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     fun resetRide() {
         bleManager.resetRide()
         rideStartTime = 0L
-        _isRideActive.value = false
         _isPaused.value = false
     }
 
