@@ -235,10 +235,17 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
             return
         }
 
-        val simplified = RouteSimplifier.simplifyToTarget(points, 20)
+        // Allow up to 200 waypoints for long routes
+        val simplified = RouteSimplifier.simplifyToTarget(points, 200)
         val routePointsToSend = simplified.map { it.latitude to it.longitude }
         Log.d("NavVM", "Sending ${routePointsToSend.size} waypoints to bike")
-        bleManager.sendRoute(routePointsToSend)
+        
+        // Split into chunks if the route is very long (BLE packet size ~512 bytes)
+        if (routePointsToSend.size > 50) {
+            bleManager.sendRouteChunked(routePointsToSend)
+        } else {
+            bleManager.sendRoute(routePointsToSend)
+        }
     }
 
     private fun haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

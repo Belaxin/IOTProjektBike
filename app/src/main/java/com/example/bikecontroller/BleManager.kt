@@ -38,12 +38,14 @@ class BleManager(private val context: Context) {
 
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab")
     private val RX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
-    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ad")
+    private val TX_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ac")
     private val CLIENT_CONFIG_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     
     private var lastDevice: BluetoothDevice? = null
     private val handler = Handler(Looper.getMainLooper())
     private var pendingCommand: String? = null
+    private val ackLock = Object()
+    @Volatile private var lastAckCount: Int = -1
 
     @SuppressLint("MissingPermission")
     fun connect(device: BluetoothDevice) {
@@ -136,6 +138,14 @@ class BleManager(private val context: Context) {
                 trimmed.startsWith("DIST:") -> _distance.value = trimmed.substring(5).toInt()
                 trimmed.contains("GPS:1") -> _hasGpsFix.value = true
                 trimmed.contains("GPS:0") -> _hasGpsFix.value = false
+                trimmed.startsWith("ROUTE_ACK:") -> {
+                    val n = trimmed.substringAfter(":").toIntOrNull() ?: -1
+                    if (n >= 0) {
+                        lastAckCount = n
+                        synchronized(ackLock) { ackLock.notifyAll() }
+                        DebugLogger.log("ACK: $n")
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e("BleManager", "Parse error for: [$trimmed]", e)
@@ -189,9 +199,90 @@ class BleManager(private val context: Context) {
 
     fun sendRoute(points: List<Pair<Double, Double>>) {
         if (points.isEmpty()) return
-        val routeString = "ROUTE:" + points.take(20).joinToString(";") { (lat, lon) ->
+        val routeString = "ROUTE:" + points.joinToString(";") { (lat, lon) ->
             String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
         }
         send(routeString)
+    }
+
+    fun sendRouteChunked(points: List<Pair<Double, Double>>) {
+        if (points.isEmpty()) return
+
+        // Run on background thread to avoid blocking UI / causing ANR
+        Thread {
+            val chunkSize = 10
+            val chunks = points.chunked(chunkSize)
+            Log.d("BleManager", "Sending route in ${chunks.size} chunks (${points.size} total waypoints)")
+
+            lastAckCount = -1
+            send("ROUTE_START:${points.size}")
+
+            // Wait for ROUTE_START acknowledgement before sending chunks
+            val startAckStart = System.currentTimeMillis()
+            synchronized(ackLock) {
+                while (lastAckCount < 0 && (System.currentTimeMillis() - startAckStart) < 5000) {
+                    try { ackLock.wait(5000) } catch (_: InterruptedException) { }
+                }
+            }
+            if (lastAckCount < 0) {
+                Log.e("BleManager", "ROUTE_START not acknowledged, aborting route send")
+                return@Thread
+            }
+
+            var sentSoFar = 0
+            var aborted = false
+            chunks.forEachIndexed { idx, chunk ->
+                if (aborted) return@forEachIndexed
+                val expectedAfter = sentSoFar + chunk.size
+                val chunkString = "ROUTE_DATA:" + chunk.joinToString(";") { (lat, lon) ->
+                    String.format(java.util.Locale.US, "%.5f,%.5f", lat, lon)
+                } + ";"
+
+                var attempts = 0
+                val maxAttempts = 3
+                var acked = false
+
+                while (attempts < maxAttempts && !acked) {
+                    attempts++
+                    send(chunkString)
+
+                    val start = System.currentTimeMillis()
+                    synchronized(ackLock) {
+                        while (lastAckCount < expectedAfter && (System.currentTimeMillis() - start) < 5000) {
+                            try { ackLock.wait(5000) } catch (_: InterruptedException) { }
+                        }
+                    }
+
+                    if (lastAckCount >= expectedAfter) {
+                        acked = true
+                        DebugLogger.log("Chunk ${idx + 1}/${chunks.size} acked: $lastAckCount")
+                    } else {
+                        DebugLogger.log("Chunk ${idx + 1}/${chunks.size} not acked, retry $attempts")
+                        try { Thread.sleep(200) } catch (_: InterruptedException) { }
+                    }
+                }
+
+                if (!acked) {
+                    Log.e("BleManager", "Failed to deliver chunk ${idx + 1} after $maxAttempts attempts")
+                    aborted = true
+                    return@forEachIndexed
+                }
+
+                sentSoFar = expectedAfter
+            }
+
+            if (!aborted) {
+                send("ROUTE_END")
+                val startFinal = System.currentTimeMillis()
+                synchronized(ackLock) {
+                    while (lastAckCount < points.size && (System.currentTimeMillis() - startFinal) < 5000) {
+                        try { ackLock.wait(5000) } catch (_: InterruptedException) { }
+                    }
+                }
+                DebugLogger.log("Route send complete; acked ${lastAckCount} / ${points.size}")
+            } else {
+                Log.e("BleManager", "Route send aborted due to failed chunk")
+            }
+        }.start()
     }
 }
