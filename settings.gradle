@@ -18,7 +18,7 @@ include ':app'
 
 // Auto-detect Android SDK location for different users
 def localProps = new File(rootDir, "local.properties")
-if (!localProps.exists()) {
+if (!localProps.exists() || localProps.text.trim().isEmpty()) {
     def sdkDir = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
     if (sdkDir == null) {
         def home = System.getProperty("user.home")
@@ -29,5 +29,7 @@ if (!localProps.exists()) {
     }
     if (sdkDir != null) {
         localProps.text = "sdk.dir=${sdkDir.replace('\\', '/')}\n"
+    } else {
+        println "WARNING: Android SDK not found. Please set ANDROID_HOME environment variable or define sdk.dir in local.properties"
     }
 }

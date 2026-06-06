@@ -67,6 +67,9 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
+    private val _isRideActive = MutableStateFlow(false)
+    val isRideActive: StateFlow<Boolean> = _isRideActive.asStateFlow()
+
     private val recordedPath = mutableListOf<GeoPoint>()
     
     private val routeService = Retrofit.Builder()
@@ -265,6 +268,7 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         totalPausedTime = 0L
         pauseTimestamp = 0L
         _isPaused.value = false
+        _isRideActive.value = true
         recordedPath.clear()
         _currentLocation.value?.let { recordedPath.add(it) }
         bleManager.startRide()
@@ -317,6 +321,7 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
         bleManager.stopRide()
         rideStartTime = 0L
         _isPaused.value = false
+        _isRideActive.value = false
     }
 
     fun togglePauseRide() {

@@ -20,7 +20,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
-var rideState = false;
+
 @Composable
 fun NavigationScreen(viewModel: NavigationViewModel) {
     val isRideActive by viewModel.isRideActive.collectAsState()
