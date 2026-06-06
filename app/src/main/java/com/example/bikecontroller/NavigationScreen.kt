@@ -23,7 +23,7 @@ import org.osmdroid.views.overlay.Polyline
 var rideState = false;
 @Composable
 fun NavigationScreen(viewModel: NavigationViewModel) {
-    var isRideActive by remember { mutableStateOf(false) }
+    val isRideActive by viewModel.isRideActive.collectAsState()
     val routePoints by viewModel.routePoints.collectAsState()
     val bleState by viewModel.bleState.collectAsState()
     val hasEspGpsFix by viewModel.hasEspGpsFix.collectAsState()
@@ -135,7 +135,6 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                         modifier = Modifier.weight(1f),
                         enabled = bleState == BleState.Connected || bleState == BleState.RouteSent
                     ) {
-                        isRideActive = true
                         viewModel.startRide()
                     }
                 } else {
@@ -145,7 +144,6 @@ fun NavigationScreen(viewModel: NavigationViewModel) {
                         modifier = Modifier.weight(1f)
                     ) {
                         viewModel.stopRide()
-                        isRideActive = false
                     }
                 }
                 
