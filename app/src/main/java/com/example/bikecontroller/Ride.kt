@@ -29,6 +29,15 @@ interface RideDao {
     @Query("SELECT * FROM rides ORDER BY date DESC")
     suspend fun getAllRides(): List<Ride>
 
+    @Query("SELECT * FROM rides ORDER BY distanceKm DESC LIMIT 10")
+    suspend fun getTopDistanceRides(): List<Ride>
+
+    @Query("SELECT * FROM rides ORDER BY durationSeconds DESC LIMIT 10")
+    suspend fun getTopDurationRides(): List<Ride>
+
+    @Query("SELECT * FROM rides ORDER BY (CASE WHEN durationSeconds > 0 THEN distanceKm / (durationSeconds / 3600.0) ELSE 0 END) DESC LIMIT 10")
+    suspend fun getTopSpeedRides(): List<Ride>
+
     @Query("SELECT COUNT(*) FROM rides WHERE date >= :startOfDay AND date <= :endOfDay")
     suspend fun getRidesCountForDay(startOfDay: Long, endOfDay: Long): Int
 

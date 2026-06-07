@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,6 +45,7 @@ import java.util.*
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     object Map : Screen("map", "Map", Icons.Default.Map)
     object Rides : Screen("rides", "Rides", Icons.Default.History)
+    object Leaderboard : Screen("leaderboard", "Stats", Icons.Default.Leaderboard)
     object Debug : Screen("debug", "Debug", Icons.Default.BugReport)
     object RideDetails : Screen("rideDetails/{rideId}", "Details", Icons.Default.History)
 }
@@ -79,12 +81,12 @@ class MainActivity : ComponentActivity() {
             Scaffold(
                 bottomBar = {
                     val currentRoute = currentDestination?.route
-                    if (currentRoute == Screen.Map.route || currentRoute == Screen.Rides.route || currentRoute == Screen.Debug.route) {
+                    if (currentRoute == Screen.Map.route || currentRoute == Screen.Rides.route || currentRoute == Screen.Leaderboard.route || currentRoute == Screen.Debug.route) {
                         NavigationBar(
                             containerColor = Color.Black,
                             contentColor = Color.White
                         ) {
-                            val items = listOf(Screen.Map, Screen.Rides, Screen.Debug)
+                            val items = listOf(Screen.Map, Screen.Rides, Screen.Leaderboard, Screen.Debug)
                             items.forEach { screen ->
                                 NavigationBarItem(
                                     icon = { Icon(screen.icon, contentDescription = screen.label) },
@@ -124,6 +126,9 @@ class MainActivity : ComponentActivity() {
                         RidesScreen(onRideClick = { id ->
                             navController.navigate("rideDetails/$id")
                         })
+                    }
+                    composable(Screen.Leaderboard.route) {
+                        LeaderboardScreen()
                     }
                     composable(Screen.Debug.route) {
                         DebugScreen()
