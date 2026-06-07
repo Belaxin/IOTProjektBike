@@ -246,41 +246,99 @@ void updateNavigation()
     return;
   }
 
-  if (routeIndex >= (int)routeLat.size())
+  int routeSize = (int)routeLat.size();
+  if (routeIndex >= routeSize)
   {
     currentNav = "ARRIVED";
     currentNavDistance = 0;
     return;
   }
 
-  float targetLat = routeLat[routeIndex];
-  float targetLon = routeLon[routeIndex];
-
-  // Distance to current target
-  float dist = haversine(gpsLat, gpsLon, targetLat, targetLon);
-  currentNavDistance = (int)dist;
-
-  // Check if reached waypoint (15 meter threshold)
-  if (dist < 15)
+  // Advance past waypoints that are already reached.
+  while (routeIndex < routeSize)
   {
-    routeIndex++;
-
-    if (routeIndex >= (int)routeLat.size())
+    float reachedLat = routeLat[routeIndex];
+    float reachedLon = routeLon[routeIndex];
+    float reachedDist = haversine(gpsLat, gpsLon, reachedLat, reachedLon);
+    if (reachedDist < 15)
     {
-      currentNav = "ARRIVED";
-      currentNavDistance = 0;
-      return;
+      routeIndex++;
+      continue;
     }
-
-    targetLat = routeLat[routeIndex];
-    targetLon = routeLon[routeIndex];
+    break;
   }
 
-  // Calculate bearing to target
-  float bearing = calculateBearing(gpsLat, gpsLon, targetLat, targetLon);
+  if (routeIndex >= routeSize)
+  {
+    currentNav = "ARRIVED";
+    currentNavDistance = 0;
+    return;
+  }
 
-  // Get turn direction based on current heading
-  currentNav = getTurnDirection(gpsCourse, bearing);
+  // Pick the nearest waypoint among the next few points to keep the route followable.
+  int bestIndex = routeIndex;
+  float bestDist = haversine(gpsLat, gpsLon, routeLat[routeIndex], routeLon[routeIndex]);
+  int maxSearch = routeIndex + 6;
+  if (maxSearch >= routeSize)
+    maxSearch = routeSize - 1;
+
+  for (int i = routeIndex + 1; i <= maxSearch; i++)
+  {
+    float d = haversine(gpsLat, gpsLon, routeLat[i], routeLon[i]);
+    if (d < bestDist)
+    {
+      bestDist = d;
+      bestIndex = i;
+    }
+  }
+  routeIndex = bestIndex;
+
+  if (routeIndex >= routeSize - 1)
+  {
+    currentNav = "ARRIVED";
+    currentNavDistance = 0;
+    return;
+  }
+
+  int currentTarget = routeIndex + 1;
+  int lookaheadIndex = routeIndex + 2;
+  if (lookaheadIndex >= routeSize)
+    lookaheadIndex = routeSize - 1;
+
+  float nextLat = routeLat[currentTarget];
+  float nextLon = routeLon[currentTarget];
+  float nextDist = haversine(gpsLat, gpsLon, nextLat, nextLon);
+  currentNavDistance = (int)nextDist;
+
+  float bearingToNext = calculateBearing(gpsLat, gpsLon, nextLat, nextLon);
+  float segmentBearing = calculateBearing(routeLat[routeIndex], routeLon[routeIndex], nextLat, nextLon);
+
+  // Prefer the next segment if a turn is coming soon.
+  if (routeIndex + 2 < routeSize)
+  {
+    float nextSegmentBearing = calculateBearing(routeLat[currentTarget], routeLon[currentTarget], routeLat[lookaheadIndex], routeLon[lookaheadIndex]);
+    float angleDiff = nextSegmentBearing - segmentBearing;
+
+    while (angleDiff < -180)
+      angleDiff += 360;
+    while (angleDiff > 180)
+      angleDiff -= 360;
+
+    if (fabs(angleDiff) > 25 && nextDist < 50)
+    {
+      if (fabs(angleDiff) > 150)
+      {
+        currentNav = "U-TURN";
+      }
+      else
+      {
+        currentNav = (angleDiff > 0) ? "RIGHT" : "LEFT";
+      }
+      return;
+    }
+  }
+
+  currentNav = getTurnDirection(gpsCourse, bearingToNext);
 }
 
 // ========================================
@@ -879,7 +937,7 @@ void setup()
 
   // DISPLAY
   tft.init();
-  tft.setRotation(0); // portrait orientation for a vertical dashboard
+  tft.setRotation(2); // portrait orientation for a vertical dashboard
   tft.fillScreen(TFT_RED);
   delay(200);
   tft.fillScreen(TFT_GREEN);

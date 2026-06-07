@@ -235,9 +235,11 @@ class NavigationViewModel(private val bleManager: BleManager, context: Context) 
             return
         }
 
-        // Allow up to 200 waypoints for long routes
-        val simplified = RouteSimplifier.simplifyToTarget(points, 200)
-        val routePointsToSend = simplified.map { it.latitude to it.longitude }
+        // Allow up to 200 waypoints for long routes.
+        // Preserve route shape by using the more conservative simplifier.
+        val routePairs = points.map { it.latitude to it.longitude }
+        val simplified = RouteManager().simplifyRoute(routePairs, 200)
+        val routePointsToSend = simplified
         Log.d("NavVM", "Sending ${routePointsToSend.size} waypoints to bike")
         
         // Split into chunks if the route is very long (BLE packet size ~512 bytes)
